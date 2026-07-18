@@ -20,6 +20,12 @@
 # production
 /build
 
+# Arduino / ESP32 build artifacts
+sketch_jul16a/build/
+**/build/esp32.*/
+*.ino.elf
+*.ino.map
+
 # misc
 .DS_Store
 *.pem

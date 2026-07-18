@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import OTAAdmin from '@/components/OTAAdmin'
 import {
   adminGetUsers, adminCreateUserAction, adminDeleteUserAction,
   adminGetFlats, adminCreateFlatAction, adminLinkUserToFlatAction,
@@ -634,6 +635,7 @@ export default function AdminDashboard() {
     { id: 'flats',    emoji: '🏠', label: 'Daire Ekle',     sub: 'Bina & daire tanımla' },
     { id: 'link',     emoji: '🔗', label: 'Eşleştir',       sub: 'Kullanıcı ↔ Daire' },
     { id: 'geofence', emoji: '📍', label: 'Konum Kısıtı',   sub: 'GPS alan belirle' },
+    { id: 'ota',      emoji: '📡', label: 'OTA Güncelleme', sub: 'ESP32 firmware yükle' },
     { id: 'list',     emoji: '📋', label: 'Hesaplar',        sub: 'Tüm kullanıcılar' },
   ]
 
@@ -787,6 +789,7 @@ export default function AdminDashboard() {
           {activeTab === 'flats'    && <AddFlatTab onSuccess={fetchAll} />}
           {activeTab === 'link'     && <LinkTab users={users} flats={flats} onSuccess={fetchAll} />}
           {activeTab === 'geofence' && <GeofenceTab />}
+          {activeTab === 'ota'      && <OTAAdmin />}
           {activeTab === 'list'     && <UsersListTab users={users} loading={loading} onDelete={handleDeleteUser} />}
         </main>
       </div>

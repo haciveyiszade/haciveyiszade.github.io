@@ -12,8 +12,8 @@
 #include <WiFiClientSecure.h>
 
 // --- KULLANICI AYARLARI ---
-const char* ssid = "MrDeveloper";             // Wi-Fi Ağ Adınız
-const char* password = "F*5531501268";         // Wi-Fi Şifreniz
+const char* ssid = "YOUR_WIFI_SSID";           // Wi-Fi Ağ Adınız
+const char* password = "YOUR_WIFI_PASSWORD";   // Wi-Fi Şifreniz
 
 // Supabase Bağlantı Bilgileri (URL sonuna slash '/' koymayın)
 const char* supabaseUrl = "https://xfqdjpwczublqdlfhgfm.supabase.co";

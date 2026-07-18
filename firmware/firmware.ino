@@ -15,14 +15,21 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <HTTPUpdate.h>
 
 // --- KULLANICI AYARLARI ---
-const char* ssid = "YOUR_WIFI_SSID";          // Wi-Fi Ağ Adınız
-const char* password = "YOUR_WIFI_PASSWORD";  // Wi-Fi Şifreniz
+const char* ssid = "MrDeveloper";          // Wi-Fi Ağ Adınız
+const char* password = "F*5531501268";  // Wi-Fi Şifreniz
 
 // Supabase Bağlantı Bilgileri (URL sonuna slash '/' koymayın)
 const char* supabaseUrl = "https://xfqdjpwczublqdlfhgfm.supabase.co";
 const char* supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmcWRqcHdjenVibHFkbGZoZ2ZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzNTI5NTcsImV4cCI6MjA5OTkyODk1N30.ZHEVtzKqxlk_fc1xux00eIDIi35WqIPespFcgUiouww";
+
+// İlk OTA kurulumundan önce bu değeri size verilen cihaz anahtarıyla değiştirin.
+// Bu anahtarı herkese açık bir Git deposuna göndermeyin.
+const char* otaDeviceToken = "YOUR_OTA_DEVICE_TOKEN";
+const char* firmwareVersion = "1.0.0";
+const char* otaEndpoint = "https://xfqdjpwczublqdlfhgfm.supabase.co/functions/v1/ota";
 // --------------------------
 
 // Donanım Pin Tanımlamaları
@@ -33,6 +40,13 @@ const int RELAY_IDLE_STATE = LOW;
 // Çalışma Parametreleri
 const int POLL_INTERVAL_MS = 1500;      // Veritabanını sorgulama sıklığı (1.5 saniye)
 const int TRIGGER_DURATION_MS = 2000;   // Sinyal gönderme süresi (2 saniye)
+const unsigned long OTA_INTERVAL_MS = 60000; // OTA kontrolü (1 dakika)
+
+unsigned long lastOtaCheck = 0;
+
+void checkForOtaUpdate();
+void reportOtaStatus(const String& status, const String& errorMessage = "");
+String readJsonString(const String& json, const String& key);
 
 void setup() {
   Serial.begin(115200);
@@ -75,6 +89,11 @@ void loop() {
 
     // 3. İstek durumunu 'completed' (Tamamlandı) olarak güncelle
     updateRequestStatus(pendingRequestId, "completed");
+  }
+
+  if (millis() - lastOtaCheck >= OTA_INTERVAL_MS) {
+    lastOtaCheck = millis();
+    checkForOtaUpdate();
   }
 
   delay(POLL_INTERVAL_MS);
@@ -194,4 +213,115 @@ void updateRequestStatus(long id, String newStatus) {
   }
   
   http.end();
+}
+
+// JSON içinden basit string alanı okur. OTA yanıtı sabit ve küçük olduğu için
+// ek bir JSON kütüphanesine ihtiyaç duymaz.
+String readJsonString(const String& json, const String& key) {
+  String marker = "\"" + key + "\":\"";
+  int start = json.indexOf(marker);
+  if (start < 0) return "";
+  start += marker.length();
+  int finish = json.indexOf("\"", start);
+  if (finish < 0) return "";
+  String value = json.substring(start, finish);
+  value.replace("\\/", "/");
+  value.replace("\\u0026", "&");
+  return value;
+}
+
+void reportOtaStatus(const String& status, const String& errorMessage) {
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient http;
+  http.begin(client, String(otaEndpoint) + "/report");
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("x-device-token", otaDeviceToken);
+
+  String body = "{\"status\":\"" + status + "\",\"version\":\"" +
+                String(firmwareVersion) + "\"";
+  if (errorMessage.length() > 0) {
+    String safeError = errorMessage;
+    safeError.replace("\"", "'");
+    body += ",\"error\":\"" + safeError + "\"";
+  }
+  body += "}";
+
+  http.POST(body);
+  http.end();
+}
+
+void checkForOtaUpdate() {
+  if (String(otaDeviceToken) == "YOUR_OTA_DEVICE_TOKEN") {
+    Serial.println("OTA cihaz anahtari ayarlanmamis; kontrol atlandi.");
+    return;
+  }
+
+  Serial.println("OTA guncellemesi kontrol ediliyor...");
+
+  WiFiClientSecure manifestClient;
+  manifestClient.setInsecure();
+
+  HTTPClient http;
+  String manifestUrl = String(otaEndpoint) + "/manifest?version=" + firmwareVersion;
+  http.begin(manifestClient, manifestUrl);
+  http.addHeader("x-device-token", otaDeviceToken);
+
+  int responseCode = http.GET();
+  if (responseCode != 200) {
+    Serial.printf("OTA manifest hatasi: HTTP %d\n", responseCode);
+    http.end();
+    return;
+  }
+
+  String manifest = http.getString();
+  http.end();
+
+  if (manifest.indexOf("\"update\":true") < 0) {
+    Serial.println("Firmware guncel.");
+    return;
+  }
+
+  String newVersion = readJsonString(manifest, "version");
+  String downloadUrl = readJsonString(manifest, "url");
+  if (newVersion.length() == 0 || downloadUrl.length() == 0) {
+    Serial.println("OTA manifest gecersiz.");
+    reportOtaStatus("failed", "Manifest gecersiz");
+    return;
+  }
+
+  Serial.printf("Yeni firmware bulundu: %s -> %s\n", firmwareVersion, newVersion.c_str());
+  reportOtaStatus("downloading");
+
+  WiFiClientSecure downloadClient;
+  downloadClient.setInsecure();
+
+  HTTPUpdate updater;
+  updater.rebootOnUpdate(true);
+  updater.onStart([]() {
+    Serial.println("OTA kurulumu basladi.");
+    reportOtaStatus("installing");
+  });
+  updater.onProgress([](int current, int total) {
+    if (total > 0) Serial.printf("OTA: %d%%\r", (current * 100) / total);
+  });
+  updater.onError([](int error) {
+    Serial.printf("\nOTA hatasi (%d)\n", error);
+  });
+
+  t_httpUpdate_return result = updater.update(downloadClient, downloadUrl, firmwareVersion);
+  switch (result) {
+    case HTTP_UPDATE_FAILED:
+      reportOtaStatus("failed", updater.getLastErrorString());
+      Serial.printf("OTA basarisiz: %s\n", updater.getLastErrorString().c_str());
+      break;
+    case HTTP_UPDATE_NO_UPDATES:
+      Serial.println("OTA: yeni surum yok.");
+      break;
+    case HTTP_UPDATE_OK:
+      // rebootOnUpdate aktif olduğu için cihaz bu noktadan sonra yeniden başlar.
+      Serial.println("OTA basarili, cihaz yeniden baslatiliyor.");
+      break;
+  }
 }
