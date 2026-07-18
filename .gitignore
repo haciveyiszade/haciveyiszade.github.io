@@ -21,6 +21,7 @@
 /build
 
 # Arduino / ESP32 build artifacts
+firmware/build/
 sketch_jul16a/build/
 **/build/esp32.*/
 *.ino.elf
